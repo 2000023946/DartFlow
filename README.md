@@ -1,67 +1,64 @@
 # 🌊 DartFlow
 
-### A strictly typed, event-driven orchestration framework for Dart & Flutter.
+### The Industrial-Grade Orchestration Engine for Dart & Flutter.
 
-**DartFlow** isn't just another state management library. It is a robust **orchestration engine** designed to handle complex, asynchronous business logic by wiring immutable events to **Directed Acyclic Graphs (DAGs)**.
-
-While tools like Bloc or Provider manage *how the UI looks*, DartFlow manages *how your logic flows*—ensuring every step of a process is ordered, conditional, and parallelized with industrial-grade safety.
+**DartFlow** is a strictly typed, event-driven orchestration framework. It allows you to wire immutable events to **Directed Acyclic Graphs (DAGs)**, executing complex business logic with mathematical certainty and streaming typed results back in real-time.
 
 ---
 
-## 🚀 The Core Philosophy
+## 🚀 Why DartFlow?
 
-In traditional app development, complex logic (like a multi-step Bluetooth connection or a multi-stage checkout) often becomes "spaghetti code" hidden inside services. **DartFlow** turns this logic into a visible, verifiable graph.
+In modern app development, state management handles the *UI*. **DartFlow handles the *Process*.** If you've ever struggled with "spaghetti services" where logic is scattered across nested `if/else` blocks and uncoordinated `async` calls, DartFlow is the solution. It turns your business requirements into a visible, verifiable, and testable graph.
 
-### The 4 Pillars of DartFlow
+### Key Features
 
-1. **Immutability**: Data entering the system (**SourceProof**) and facts shared between tasks (**WorkflowContext**) are strictly controlled.
-2. **Isolation**: Every execution run is its own "universe" with a dedicated event bus. No leaked state.
-3. **Graph Safety**: Your workflow is a DAG. Cycles and disconnected nodes are caught at **startup**, not in production.
-4. **Type Integrity**: From the triggering event to the final stream output, types are preserved. No `dynamic` casting required.
+* **Write-Once Context**: A `WorkflowContext` prevents "silent overwrites." Once a fact is established in a run, it is immutable.
+* **DAG Validation**: The framework validates your task graph at **runtime startup**. If there are cycles or disconnected nodes, it fails immediately—never in production.
+* **Total Isolation**: Each `publish` call creates a unique "Run." No shared state, no side effects between concurrent workflows.
+* **Type Safety**: End-to-end generics ensure that your `Stream<Result>` is fully typed. No `dynamic` or `Object` casting.
 
 ---
 
-## 🛠 Core Components
+## 🛠 Core Concepts
 
-### 1. SourceProof (The Trigger)
+### 1. The Trigger: `SourceProof`
 
-An immutable "envelope" containing the data required to start a workflow.
+Everything starts with a "Proof"—an immutable data object that justifies the start of a workflow.
 
 ```dart
-class UserLoginProof extends SourceProof {
-  final String email;
-  final String password;
-  UserLoginProof(this.email, this.password);
+class UploadFileProof extends SourceProof {
+  final String filePath;
+  final String destination;
+  UploadFileProof(this.filePath, this.destination);
 }
 
 ```
 
-### 2. WorkflowContext (The Fact Bag)
+### 2. The Workspace: `WorkflowContext`
 
-A **write-once** storage container shared across tasks. If Task A sets a user ID, Task B can read it, but Task C cannot overwrite it. This prevents race conditions.
+The context is a shared "fact bag" for the workflow. It uses symbols or types as keys.
 
 ```dart
-class AuthContext extends WorkflowContext<AuthResult> {
-  AuthContext(super.bus);
+class UploadContext extends WorkflowContext<UploadResult> {
+  UploadContext(super.bus);
 
-  // Strictly typed getters/setters
-  String? get token => has(#token) ? protectedGet<String>(#token) : null;
-  void setToken(String t) => protectedSet(#token, t);
+  // Helper for typed access
+  File get file => protectedGet<File>(#file_handle);
+  void setFile(File f) => protectedSet(#file_handle, f);
 }
 
 ```
 
-### 3. Tasks (The Units of Work)
+### 3. The Logic: `Tasks`
 
-Tasks are where your logic lives. They can be synchronous or asynchronous. They emit results to the UI via the `context.bus`.
+A task is a single unit of work. It reads from the context, performs logic, and notifies the bus.
 
 ```dart
-class AuthenticateTask extends AbstractTask<AuthContext> {
+class ResizeImageTask extends AbstractTask<UploadContext> {
   @override
-  Future<void> execute(AuthContext context) async {
-    final token = await api.login(context.proof.email, context.proof.password);
-    context.setToken(token); // Store for future tasks
-    context.bus.notify(AuthResult()..status = 'Authenticated'); // Notify UI
+  Future<void> execute(UploadContext context) async {
+    // Logic here...
+    context.bus.notify(UploadResult()..status = 'Resizing complete');
   }
 }
 
@@ -69,88 +66,83 @@ class AuthenticateTask extends AbstractTask<AuthContext> {
 
 ---
 
-## 🏗 Composing the Graph (Fluent API)
+## 🏗 Composition Primitives
 
-DartFlow provides seven powerful primitives to describe even the most complex enterprise workflows.
+Build complex logic using a fluent API. DartFlow supports:
 
-| Primitive | Behavior |
+| Primitive | Logic |
 | --- | --- |
-| **`.then()`** | **Sequential**: Run Task B only after Task A succeeds. |
-| **`.thenSwitch()`** | **Branching**: Run the first task that meets a logical condition. |
-| **`.fanOut()`** | **Parallel**: Launch multiple tasks at once (e.g., Fetch Profile + Fetch Settings). |
-| **`.fanIn()`** | **Barrier**: Wait for all parallel tasks to finish before moving on. |
-| **`.onFailure()`** | **Error Handling**: Define a specific fallback task if a node fails. |
-| **`.repeatUntil()`** | **Resilience**: Automatically retry logic until a condition is met. |
+| **`.then(Task)`** | **Sequential**: Run B after A. |
+| **`.thenSwitch([Tasks])`** | **Conditional**: Run the first task whose `condition` returns true. |
+| **`.fanOut([Tasks])`** | **Parallel**: Run multiple tasks simultaneously. |
+| **`.onFailure(Task)`** | **Resilience**: Define a recovery path if a task throws. |
+| **`.repeatUntil(Task)`** | **Retry**: Loop logic until a specific state is achieved. |
 
-### Example Composition:
+### The "Power" Example
 
 ```dart
-CheckNetworkTask()
-  .then(LoginTask())
-  .fanOut([
-    FetchUserDataTask(),
-    SyncLocalCacheTask(),
+CheckAuthTask()
+  .then(InitializeUploadTask())
+  .thenSwitch([
+    SmallFileUploadTask(), // If < 5MB
+    MultipartUploadTask(), // If > 5MB
   ])
-  .fanIn(FinalizeSessionTask())
-  .onFailure(ShowErrorTask());
+  .fanOut([
+    UpdateLocalDbTask(),
+    NotifyAnalyticsTask(),
+  ])
+  .onFailure(CleanupTempFilesTask());
 
 ```
 
 ---
 
-## 📡 The Broadcaster
+## 📡 The Broadcaster (The Entry Point)
 
-The `Broadcaster` is the entry point. It uses a **Certificate-Gated Registration** system, meaning only authorized modules can register orchestrators, preventing "hijacking" of your business logic.
+Registration is gated by a `BroadcasterAuthorityCertificate` to ensure only authorized modules can define workflows.
 
 ```dart
-// 1. Setup
 final broadcaster = Broadcaster(BroadcasterAuthorityCertificate());
-broadcaster.register<UserLoginProof, AuthResult>(AuthOrchestrator());
 
-// 2. Execute & Listen
-broadcaster
-  .publish<AuthResult>(UserLoginProof('dev@dartflow.io', 'password123'))
-  .listen((result) {
-    print("Update from workflow: ${result.status}");
-  });
+// Registering a workflow
+broadcaster.register<UploadFileProof, UploadResult>(UploadOrchestrator());
 
-```
+// Executing a workflow
+final stream = broadcaster.publish<UploadResult>(UploadFileProof('/path/to/img.png', 'cloud/storage'));
 
----
-
-## 🔍 Execution Lifecycle
-
-1. **Publish**: A `SourceProof` is sent to the `Broadcaster`.
-2. **Lookup**: The Registry finds the `Orchestrator` mapped to that proof.
-3. **Isolation**: A new `WorkflowContext` and `EventBus` are created for this specific run.
-4. **Validation**: The `ExecutionEngine` verifies the DAG hasn't been corrupted.
-5. **Traversal**: Tasks execute in topological order.
-6. **Streaming**: Results are streamed back to the caller in real-time.
-7. **Teardown**: Once the "Sink" nodes of the graph complete, the bus closes automatically.
-
----
-
-## 📁 Project Structure
-
-```text
-framework/
-├── broadcaster/     # Entry point & Authority gating
-├── dag/             # The "Brain": Compiler, Validator, & Engine
-├── event_bus/       # Real-time communication layer
-├── orchestrator/    # Workflow definitions
-├── proofs/          # Input event definitions
-├── registry/        # Proof-to-Orchestrator mapping
-└── tasks/           # Composition primitives & Task base classes
+stream.listen((update) {
+  print("Current Progress: ${update.percent}%");
+});
 
 ```
 
 ---
 
-## 💎 Why choose DartFlow?
+## 🔍 The Lifecycle
 
-* **Auditability**: Because the context is write-once, you can log exactly what "facts" were known at every step of the execution.
-* **Testability**: Tasks are small, decoupled, and take a typed context, making unit testing trivial.
-* **Safety**: Stop chasing `null` errors and race conditions. The DAG ensures things happen in the order you intended.
-* **Performance**: Pure Dart logic. No heavy dependencies. Lightweight enough for the smallest apps, powerful enough for the largest.
+1. **Event In**: `SourceProof` is published.
+2. **Context Creation**: An isolated context and event bus are instantiated.
+3. **Graph Compilation**: The DAG is optimized and sorted.
+4. **Execution**: Tasks run in topological order. Parallel tasks (`fanOut`) run concurrently.
+5. **Stream Out**: Tasks push `WorkflowResult` objects to the caller's stream.
+6. **Cleanup**: The bus closes automatically when the "sink" tasks finish.
+
+---
+
+## 📦 Installation
+
+Add DartFlow to your `pubspec.yaml`:
+
+```yaml
+dependencies:
+  dartflow: ^1.0.0
+
+```
+
+---
+
+## ⚖️ License
+
+Licensed under the **MIT License**.
 
 ---
